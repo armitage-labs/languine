@@ -45,6 +45,11 @@ export class GitHubProvider implements GitPlatform {
     await execAsync('git config --global user.email "bot@languine.ai"');
     await execAsync('git config --global user.username "languinebot"');
     await execAsync(`git config --global safe.directory ${process.cwd()}`);
+
+    if (this.#token) {
+      const repo = `${this.#owner}/${this.#repo}`;
+      await execAsync(`git remote set-url origin https://x-access-token:${this.#token}@github.com/${repo}.git`);
+    }
   }
 
   async createOrUpdatePullRequest(options: {
@@ -54,26 +59,22 @@ export class GitHubProvider implements GitPlatform {
   }) {
     const { title, body, branch } = options;
 
-    // Ensure branch exists on remote
     logger.info("Ensuring branch exists on remote...");
     await execAsync(`git push -u origin ${branch}`).catch((error) => {
       logger.warn(`Failed to push branch: ${error}`);
     });
 
-    // First close any existing PR
     const existingPRNumber = await this.getOpenPullRequestNumber(branch);
     if (existingPRNumber) {
       logger.info(`Closing existing PR #${existingPRNumber}`);
       await this.closeOpenPullRequest({ pullRequestNumber: existingPRNumber });
 
-      // Add comment about the new PR
       await this.addCommentToPullRequest({
         pullRequestNumber: existingPRNumber,
         body: "This PR is now outdated. A new version has been created.",
       });
     }
 
-    // Create new PR
     logger.info("Creating new PR...");
     await this.octokit.rest.pulls.create({
       owner: this.#owner,
@@ -93,16 +94,13 @@ export class GitHubProvider implements GitPlatform {
   async pullAndRebase() {
     logger.info(`Syncing with ${this.#baseBranch}`);
 
-    // First get current branch
     const currentBranch = await this.getCurrentBranch();
 
-    // Fetch and reset base branch
     await execAsync(`git fetch origin ${this.#baseBranch}`);
     await execAsync(`git checkout -f ${this.#baseBranch}`);
     await execAsync(`git reset --hard origin/${this.#baseBranch}`);
-    await execAsync("git clean -fd"); // Clean untracked files
+    await execAsync("git clean -fd");
 
-    // Go back to our branch and reset to base
     await execAsync(`git checkout -f ${currentBranch}`);
     await execAsync(`git reset --hard origin/${this.#baseBranch}`);
   }
@@ -121,14 +119,12 @@ export class GitHubProvider implements GitPlatform {
   async createBranch(branchName: string) {
     logger.info(`Creating new branch: ${branchName}`);
 
-    // First ensure we have the latest base branch
     logger.info(`Fetching and checking out ${this.#baseBranch}`);
     await execAsync(`git fetch origin ${this.#baseBranch}`);
     await execAsync(`git checkout -f ${this.#baseBranch}`);
     await execAsync(`git reset --hard origin/${this.#baseBranch}`);
-    await execAsync("git clean -fd"); // Clean untracked files
+    await execAsync("git clean -fd");
 
-    // Create new branch from here
     logger.info(`Creating branch ${branchName} from ${this.#baseBranch}`);
     await execAsync(`git checkout -b ${branchName}`);
   }
